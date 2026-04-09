@@ -43,8 +43,8 @@
     # All positions refer to wrist3_link origin (NOT tool-tip)
     # The framework converts to flange coordinates before sending MoveL
     # ----------------------------------------------------------------------
-    bottle_pick_position_xyz: [-0.160, -0.420, 0.410]
-    bottle_place_position_xyz: [0.20, -0.420, 0.400]
+    bottle_pick_position_xyz: [-0.160, -0.420, 0.420]
+    bottle_place_position_xyz: [0.20, -0.420, 0.420]
 
     # ----------------------------------------------------------------------
     # BLIND CAPSULE PICK — wrist3_link position in base_link
@@ -57,7 +57,7 @@
     # ----------------------------------------------------------------------
     # CAPSULE PLACE — wrist3_link position in base_link
     # ----------------------------------------------------------------------
-    capsule_place_position_xyz: [0.20, -0.420, 0.445]
+    capsule_place_position_xyz: [0.20, -0.420, 0.444]
     capsule_place_rpy_deg: [0.0, 0.0, 0.0]
 
     # Offset from wrist3_link origin to flange (URDF world_to_gripper joint z)
@@ -78,7 +78,7 @@
     planning_time_sec: 4.0
     num_planning_attempts: 30
     max_free_space_retries: 15
-    ptp_velocity_scaling: 0.20
+    ptp_velocity_scaling: 0.40
     ptp_acceleration_scaling: 0.20
     goal_position_tolerance: 0.003
     goal_orientation_tolerance: 0.03
@@ -96,22 +96,22 @@
 
     # Bottle pick
     bottle_pick_speed_percent: 15.0
-    bottle_pick_retreat_speed_percent: 15.0
+    bottle_pick_retreat_speed_percent: 25.0
     bottle_pick_retreat_distance_m: 0.4
 
     # Bottle place
     bottle_place_speed_percent: 15.0
-    bottle_place_retreat_speed_percent: 20.0
+    bottle_place_retreat_speed_percent: 25.0
     bottle_place_retreat_distance_m: 0.1
 
     # Capsule pick
     capsule_pick_speed_percent: 15.0
-    capsule_pick_retreat_speed_percent: 20.0
+    capsule_pick_retreat_speed_percent: 25.0
     capsule_pick_retreat_distance_m: 0.05
 
     # Capsule place (on bottle)
     capsule_place_speed_percent: 15.0
-    capsule_place_retreat_speed_percent: 20.0
+    capsule_place_retreat_speed_percent: 25.0
     capsule_place_retreat_distance_m: 0.05
 
     # ----------------------------------------------------------------------

@@ -54,6 +54,7 @@ ament_target_dependencies(pick_place_bottle_capsule_framework
   geometry_msgs
   geometric_shapes
   fairino_bridge
+  std_srvs
 )
 
 install(TARGETS 

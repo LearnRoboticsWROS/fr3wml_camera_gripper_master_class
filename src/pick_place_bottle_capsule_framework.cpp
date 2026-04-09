@@ -34,8 +34,10 @@
 #include <sstream>
 
 #include "fairino_bridge/srv/execute_pose_motion.hpp"
+#include <std_srvs/srv/trigger.hpp>
 
 using MoveLClient = rclcpp::Client<fairino_bridge::srv::ExecutePoseMotion>;
+using TriggerClient = rclcpp::Client<std_srvs::srv::Trigger>;
 
 using moveit::planning_interface::MoveGroupInterface;
 
@@ -327,10 +329,10 @@ ExecutorConfig declareAndLoadConfig(const rclcpp::Node::SharedPtr& node)
 
   // Task points in base_link — wrist3_link positions
   cfg.bottle_pick_position_xyz = node->declare_parameter<std::vector<double>>(
-      "bottle_pick_position_xyz", {-0.160, -0.420, 0.410});
+      "bottle_pick_position_xyz", {-0.160, -0.420, 0.420});
 
   cfg.bottle_place_position_xyz = node->declare_parameter<std::vector<double>>(
-      "bottle_place_position_xyz", {0.20, -0.420, 0.410});
+      "bottle_place_position_xyz", {0.20, -0.420, 0.420});
 
   cfg.capsule_pick_position_xyz = node->declare_parameter<std::vector<double>>(
       "capsule_pick_position_xyz", {0.230, -0.14, 0.195});
@@ -647,7 +649,7 @@ void allowEndEffectorCollisions(
     rclcpp::Node::SharedPtr node,
     const rclcpp::Logger& logger)
 {
-  auto planning_scene_pub = node->create_publisher<moveit_msgs::msg::PlanningScene>(
+  auto acm_pub = node->create_publisher<moveit_msgs::msg::PlanningScene>(
       "planning_scene", 1);
 
   moveit_msgs::msg::PlanningScene ps_msg;
@@ -658,7 +660,7 @@ void allowEndEffectorCollisions(
       END_EFFECTOR_LINKS.size(), true);
 
   rclcpp::sleep_for(std::chrono::milliseconds(500));
-  planning_scene_pub->publish(ps_msg);
+  acm_pub->publish(ps_msg);
   rclcpp::sleep_for(std::chrono::milliseconds(500));
 
   RCLCPP_INFO(logger,
@@ -672,28 +674,15 @@ void removeObjectFromWorld(
     const rclcpp::Logger& logger,
     const std::string& object_id)
 {
-  planning_scene.removeCollisionObjects({object_id});
+  moveit_msgs::msg::CollisionObject remove_obj;
+  remove_obj.header.frame_id = move_group.getPlanningFrame();
+  remove_obj.id = object_id;
+  remove_obj.operation = moveit_msgs::msg::CollisionObject::REMOVE;
+
+  planning_scene.applyCollisionObjects({remove_obj});
   waitMs(cfg.scene_update_wait_ms);
 
-  auto known = planning_scene.getKnownObjectNames();
-  if (std::find(known.begin(), known.end(), object_id) != known.end()) {
-    RCLCPP_WARN(logger, "Object '%s' still in scene after first remove, retrying...", object_id.c_str());
-    moveit_msgs::msg::CollisionObject remove_obj;
-    remove_obj.header.frame_id = move_group.getPlanningFrame();
-    remove_obj.id = object_id;
-    remove_obj.operation = moveit_msgs::msg::CollisionObject::REMOVE;
-    planning_scene.applyCollisionObjects({remove_obj});
-    waitMs(cfg.scene_update_wait_ms);
-
-    known = planning_scene.getKnownObjectNames();
-    if (std::find(known.begin(), known.end(), object_id) != known.end()) {
-      RCLCPP_ERROR(logger, "Object '%s' STILL in scene after retry!", object_id.c_str());
-    } else {
-      RCLCPP_INFO(logger, "Object '%s' removed on retry.", object_id.c_str());
-    }
-  } else {
-    RCLCPP_INFO(logger, "Object '%s' removed from world collision scene.", object_id.c_str());
-  }
+  RCLCPP_INFO(logger, "Object '%s' removed from world collision scene.", object_id.c_str());
 }
 
 void addBottleToWorld(
@@ -920,6 +909,37 @@ bool executeMoveL(
 }
 
 // ============================================================================
+// ============================ GRIPPER HELPERS ================================
+// ============================================================================
+
+bool callTriggerService(
+    const TriggerClient::SharedPtr& client,
+    const rclcpp::Logger& logger,
+    const std::string& service_name)
+{
+  if (!client->wait_for_service(std::chrono::seconds(2))) {
+    RCLCPP_ERROR(logger, "Service '%s' not available", service_name.c_str());
+    return false;
+  }
+
+  auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+  auto future = client->async_send_request(request);
+
+  if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+    RCLCPP_ERROR(logger, "Service '%s' call timed out", service_name.c_str());
+    return false;
+  }
+
+  auto result = future.get();
+  if (result->success) {
+    RCLCPP_INFO(logger, "Gripper: %s -> OK (%s)", service_name.c_str(), result->message.c_str());
+  } else {
+    RCLCPP_ERROR(logger, "Gripper: %s -> FAILED (%s)", service_name.c_str(), result->message.c_str());
+  }
+  return result->success;
+}
+
+// ============================================================================
 // ============================= TASK SEQUENCES ================================
 // ============================================================================
 
@@ -928,19 +948,21 @@ bool executeBottlePickPlace(
     moveit::planning_interface::PlanningSceneInterface& planning_scene,
     const ExecutorConfig& cfg,
     MoveLClient::SharedPtr movel_client,
+    const TriggerClient::SharedPtr& gripper_close_client,
+    const TriggerClient::SharedPtr& gripper_idle_client,
     const rclcpp::Logger& logger)
 {
   const auto pre_pick_bottle_rad  = degVectorToRad(cfg.pre_pick_bottle_joint_deg);
   const auto pre_place_bottle_rad = degVectorToRad(cfg.pre_place_bottle_joint_deg);
 
-  // Remove bottle from scene so it doesn't block PTP or MoveL motions
-  removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
-
-  // 1) PTP to pre-pick bottle
+  // 1) PTP to pre-pick bottle (bottle stays in scene for collision avoidance)
   if (!moveToExactJointTargetRobust(
           move_group, cfg, logger, pre_pick_bottle_rad, "Bottle PTP to pre-pick")) {
     return false;
   }
+
+  // Remove bottle from scene before LIN descend (MoveL bypasses MoveIt, no conflict)
+  removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
 
   // Build bottle pick pose: position from params, orientation from actual robot pose at pre-pick
   geometry_msgs::msg::Pose bottle_pick_pose = move_group.getCurrentPose().pose;
@@ -954,7 +976,11 @@ bool executeBottlePickPlace(
     return false;
   }
 
-  // 3) Simulated pick (gripper close)
+  // 3) SoftGripper close (grab bottle)
+  if (!callTriggerService(gripper_close_client, logger, "gripper/close")) {
+    RCLCPP_WARN(logger, "SoftGripper close failed — continuing anyway");
+  }
+  waitMs(500);  // let gripper settle
 
   // 4) LIN retreat: go up by retreat_distance_m from pick position
   geometry_msgs::msg::Pose bottle_pick_retreat_pose = bottle_pick_pose;
@@ -984,7 +1010,11 @@ bool executeBottlePickPlace(
     return false;
   }
 
-  // 7) Simulated release (gripper open)
+  // 7) SoftGripper idle (release bottle)
+  if (!callTriggerService(gripper_idle_client, logger, "gripper/idle")) {
+    RCLCPP_WARN(logger, "SoftGripper idle failed — continuing anyway");
+  }
+  waitMs(500);
 
   // 8) LIN retreat: go up by retreat_distance_m from place position
   geometry_msgs::msg::Pose bottle_place_retreat_pose = bottle_place_pose;
@@ -1014,6 +1044,8 @@ bool executeCapsulePickPlace(
     moveit::planning_interface::PlanningSceneInterface& planning_scene,
     const ExecutorConfig& cfg,
     MoveLClient::SharedPtr movel_client,
+    const TriggerClient::SharedPtr& suction_on_client,
+    const TriggerClient::SharedPtr& suction_off_client,
     const std::shared_ptr<PerceptionState>& perception_state,
     const rclcpp::Logger& logger)
 {
@@ -1041,14 +1073,14 @@ bool executeCapsulePickPlace(
         capsule_pick_frame_pose.position.z);
   }
 
-  // Remove capsule from scene so it doesn't block PTP or MoveL motions
-  removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
-
-  // 1) PTP to validated capsule pre-pick joint configuration
+  // 1) PTP to validated capsule pre-pick joint configuration (capsule stays in scene for collision avoidance)
   if (!moveToExactJointTargetRobust(
           move_group, cfg, logger, pre_pick_capsule_rad, "Capsule PTP to pre-pick")) {
     return false;
   }
+
+  // Remove capsule from scene before LIN descend (MoveL bypasses MoveIt, no conflict)
+  removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
 
   // Use actual robot orientation at pre-pick (tool pointing down)
   capsule_pick_frame_pose.orientation = move_group.getCurrentPose().pose.orientation;
@@ -1059,7 +1091,11 @@ bool executeCapsulePickPlace(
     return false;
   }
 
-  // 3) Simulated capsule pick (suction on)
+  // 3) SuctionCup ON (grab capsule)
+  if (!callTriggerService(suction_on_client, logger, "suction/on")) {
+    RCLCPP_WARN(logger, "SuctionCup ON failed — continuing anyway");
+  }
+  waitMs(500);
 
   // 4) LIN retreat: go up by retreat_distance_m from pick position
   geometry_msgs::msg::Pose capsule_pick_retreat_pose = capsule_pick_frame_pose;
@@ -1088,7 +1124,11 @@ bool executeCapsulePickPlace(
     return false;
   }
 
-  // 7) Simulated release (suction off)
+  // 7) SuctionCup OFF (release capsule)
+  if (!callTriggerService(suction_off_client, logger, "suction/off")) {
+    RCLCPP_WARN(logger, "SuctionCup OFF failed — continuing anyway");
+  }
+  waitMs(500);
 
   // 8) LIN retreat: go up by retreat_distance_m from place position
   geometry_msgs::msg::Pose capsule_place_retreat_pose = capsule_place_oriented;
@@ -1195,13 +1235,15 @@ int main(int argc, char** argv)
   }
   RCLCPP_INFO(logger, "/fairino/movel_pose service connected.");
 
-  try {
-    // Clean scene: remove bottle and capsule added by scene_loader so they don't
-    // interfere with pick motions.  They will be re-added after place.
-    RCLCPP_INFO(logger, "=== Cleanup: removing bottle & capsule from planning scene ===");
-    removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
-    removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
+  // Gripper service clients
+  auto gripper_close_client = node->create_client<std_srvs::srv::Trigger>("gripper/close");
+  auto gripper_idle_client  = node->create_client<std_srvs::srv::Trigger>("gripper/idle");
+  auto suction_on_client    = node->create_client<std_srvs::srv::Trigger>("suction/on");
+  auto suction_off_client   = node->create_client<std_srvs::srv::Trigger>("suction/off");
 
+  RCLCPP_INFO(logger, "Gripper service clients created (gripper/close, gripper/idle, suction/on, suction/off)");
+
+  try {
     // 0) Move home
     RCLCPP_INFO(logger, "=== Global Step 0: Move home ===");
     if (!moveToNamedTargetRobust(move_group, cfg, logger, cfg.home_named_target, "Move home")) {
@@ -1210,22 +1252,19 @@ int main(int argc, char** argv)
 
     // 1) Bottle pick and place
     RCLCPP_INFO(logger, "=== Global Step 1: Bottle pick and place ===");
-    if (!executeBottlePickPlace(move_group, planning_scene, cfg, movel_client, logger)) {
+    if (!executeBottlePickPlace(move_group, planning_scene, cfg, movel_client,
+            gripper_close_client, gripper_idle_client, logger)) {
       throw std::runtime_error("Bottle pick and place failed.");
     }
 
     // 2) Capsule pick and place
     RCLCPP_INFO(logger, "=== Global Step 2: Capsule pick and place ===");
-    if (!executeCapsulePickPlace(move_group, planning_scene, cfg, movel_client, perception_state, logger)) {
+    if (!executeCapsulePickPlace(move_group, planning_scene, cfg, movel_client,
+            suction_on_client, suction_off_client, perception_state, logger)) {
       throw std::runtime_error("Capsule pick and place failed.");
     }
 
-    // 3) Remove scene objects before Return home — they can block MoveIt planning
-    RCLCPP_INFO(logger, "=== Cleanup: removing objects before Return home ===");
-    removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
-    removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
-
-    // 4) Return home
+    // 3) Return home (bottle + capsule stay at place positions in scene)
     RCLCPP_INFO(logger, "=== Global Step 3: Return home ===");
     if (!moveToNamedTargetRobust(move_group, cfg, logger, cfg.home_named_target, "Return home")) {
       throw std::runtime_error("Failed to return home.");
