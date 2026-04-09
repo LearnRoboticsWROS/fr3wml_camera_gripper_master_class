@@ -1264,7 +1264,12 @@ int main(int argc, char** argv)
       throw std::runtime_error("Capsule pick and place failed.");
     }
 
-    // 3) Return home (bottle + capsule stay at place positions in scene)
+    // 3) Cleanup: remove collision objects before Return home
+    RCLCPP_INFO(logger, "=== Cleanup: removing objects before Return home ===");
+    removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
+    removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
+
+    // 4) Return home
     RCLCPP_INFO(logger, "=== Global Step 3: Return home ===");
     if (!moveToNamedTargetRobust(move_group, cfg, logger, cfg.home_named_target, "Return home")) {
       throw std::runtime_error("Failed to return home.");
