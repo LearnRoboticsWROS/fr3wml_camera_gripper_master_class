@@ -8,10 +8,10 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('fr3wml_camera_gripper_moveit_config')
+    pkg_share = get_package_share_directory('fr3wml_fr5_camera_gripper_moveit_config')
 
     moveit_config = (
-        MoveItConfigsBuilder("fairino3mt_v6_robot", package_name="fr3wml_camera_gripper_moveit_config")
+        MoveItConfigsBuilder("fairino3mt_v6_robot", package_name="fr3wml_fr5_camera_gripper_moveit_config")
         .robot_description(file_path="config/fairino3mt_v6_robot.urdf.xacro")
         .robot_description_semantic(file_path="config/fairino3mt_v6_robot.srdf")
         .robot_description_kinematics(file_path="config/kinematics.yaml")

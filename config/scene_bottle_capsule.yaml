@@ -1,0 +1,36 @@
+scene_loader_node:
+  ros__parameters:
+    frame_id: "base_link"
+
+    table:
+      size: [0.9, 1.2, 0.02]
+      position: [0.00, -0.2, -0.01]
+      orientation: [0.0, 0.0, 0.0, 1.0]
+
+    crate:
+      mesh_path: "package://fr3wml_camera_gripper/meshes/crate/crate_50cL_reframed.stl"
+      position: [-0.180, -0.480, 0.00]
+      orientation: [0.0, 0.0, 0.0, 1.0]
+      scale: [1.0, 1.0, 1.0]
+
+    bottle:
+      mesh_path: "package://fr3wml_camera_gripper/meshes/bottle/bottle_50cL_reframed.stl"
+      position: [-0.160, -0.420, 0.00]
+      orientation: [0.0, 0.0, 0.0, 1.0]
+      scale: [1.0, 1.0, 1.0]
+
+    capsule:
+      radius: 0.0205
+      height: 0.004
+      position: [0.23, -0.14, 0.002]   # center of cylinder = half height
+      orientation: [0.0, 0.0, 0.0, 1.0]
+    
+    wall1:
+      size: [0.02, 1.2, 1.2]
+      position: [-0.5, -0.20, 0.6]
+      orientation: [0.0, 0.0, 0.0, 1.0]
+
+    wall2:
+      size: [0.9, 0.02, 1.2]
+      position: [0.0, 0.60, 0.6]
+      orientation: [0.0, 0.0, 0.0, 1.0]

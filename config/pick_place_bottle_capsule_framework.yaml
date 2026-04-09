@@ -1,0 +1,122 @@
+/**:
+  ros__parameters:
+    planning_group: "fr3wml"
+    home_named_target: "pos1"
+    bottle_mesh_resource: "package://fr3wml_camera_gripper/meshes/bottle/bottle_50cL_reframed.stl"
+
+    # false = blind mode
+    # true  = use runtime perception topic /capsule_pick_pose
+    use_perception_pipeline: false
+    capsule_pick_pose_topic: "/capsule_pick_pose"
+    perception_pose_timeout_sec: 5.0
+
+    # ----------------------------------------------------------------------
+    # VALIDATED JOINT TARGETS FROM MOVEIT (DEG)
+    # Used for PTP (MoveJ) motions to pre-pick / pre-place poses
+    # ----------------------------------------------------------------------
+    pre_pick_bottle_joint_deg: [61.0, -83.0, 41.0, -49.0, -94.0, -74.0]
+    pre_pick_capsule_joint_deg: [113.0, -131.0, 116.0, -75.0, -87.0, -74.0]
+    pre_place_bottle_joint_deg: [99.0, -83.0, 47.0, -56.0, -89.0, -74.0]
+
+    # ----------------------------------------------------------------------
+    # TOOL PICK FRAME wrt wrist3_link
+    # xyz in meters, rpy in degrees
+    # ----------------------------------------------------------------------
+    softgripper_pick_frame_wrt_wrist_xyz: [0.0, 0.0, 0.19]
+    softgripper_pick_frame_wrt_wrist_rpy_deg: [0.0, 0.0, 0.0]
+
+    suctioncup_pick_frame_wrt_wrist_xyz: [0.0, 0.0, 0.19]
+    suctioncup_pick_frame_wrt_wrist_rpy_deg: [0.0, 0.0, 0.0]
+
+    # ----------------------------------------------------------------------
+    # OBJECT ORIGIN wrt TOOL PICK FRAME
+    # xyz in meters, rpy in degrees
+    # ----------------------------------------------------------------------
+    bottle_origin_wrt_softgripper_pick_frame_xyz: [0.0, 0.0, 0.248]
+    bottle_origin_wrt_softgripper_pick_frame_rpy_deg: [0.0, 0.0, 0.0]
+
+    capsule_origin_wrt_suctioncup_pick_frame_xyz: [0.0, 0.0, 0.005]
+    capsule_origin_wrt_suctioncup_pick_frame_rpy_deg: [0.0, 0.0, 0.0]
+
+    # ----------------------------------------------------------------------
+    # BOTTLE PICK / PLACE — wrist3_link positions in base_link
+    # All positions refer to wrist3_link origin (NOT tool-tip)
+    # The framework converts to flange coordinates before sending MoveL
+    # ----------------------------------------------------------------------
+    bottle_pick_position_xyz: [-0.160, -0.420, 0.410]
+    bottle_place_position_xyz: [0.20, -0.420, 0.400]
+
+    # ----------------------------------------------------------------------
+    # BLIND CAPSULE PICK — wrist3_link position in base_link
+    # Used only when use_perception_pipeline = false
+    # position in meters, rpy in degrees
+    # ----------------------------------------------------------------------
+    capsule_pick_position_xyz: [0.230, -0.14, 0.195]
+    capsule_pick_rpy_deg: [0.0, 0.0, 0.0]
+
+    # ----------------------------------------------------------------------
+    # CAPSULE PLACE — wrist3_link position in base_link
+    # ----------------------------------------------------------------------
+    capsule_place_position_xyz: [0.20, -0.420, 0.445]
+    capsule_place_rpy_deg: [0.0, 0.0, 0.0]
+
+    # Offset from wrist3_link origin to flange (URDF world_to_gripper joint z)
+    wrist3_to_flange_z: 0.098
+
+    # ----------------------------------------------------------------------
+    # CAPSULE PRIMITIVE
+    # ----------------------------------------------------------------------
+    capsule_radius: 0.0205
+    capsule_height: 0.004
+
+    # ----------------------------------------------------------------------
+    # PTP (MoveJ) TUNING
+    # PTP motions are planned by MoveIt (OMPL) and executed via
+    # FollowJointTrajectory action -> Fairino MoveJ
+    # velocity/acceleration scaling: 0.0-1.0 (fraction of max)
+    # ----------------------------------------------------------------------
+    planning_time_sec: 4.0
+    num_planning_attempts: 30
+    max_free_space_retries: 15
+    ptp_velocity_scaling: 0.20
+    ptp_acceleration_scaling: 0.20
+    goal_position_tolerance: 0.003
+    goal_orientation_tolerance: 0.03
+    joint_target_tolerance: 0.02
+
+    # ----------------------------------------------------------------------
+    # LIN (MoveL) TUNING — per phase
+    # LIN motions bypass MoveIt and go directly to the Fairino controller
+    # via the bridge service /fairino/movel_pose -> Fairino MoveL
+    #
+    # *_speed_percent:          descend speed (1-100%)
+    # *_retreat_speed_percent:  retreat speed (1-100%)
+    # *_retreat_distance_m:     how far to go UP after pick/place (meters)
+    # ----------------------------------------------------------------------
+
+    # Bottle pick
+    bottle_pick_speed_percent: 15.0
+    bottle_pick_retreat_speed_percent: 15.0
+    bottle_pick_retreat_distance_m: 0.4
+
+    # Bottle place
+    bottle_place_speed_percent: 15.0
+    bottle_place_retreat_speed_percent: 20.0
+    bottle_place_retreat_distance_m: 0.1
+
+    # Capsule pick
+    capsule_pick_speed_percent: 15.0
+    capsule_pick_retreat_speed_percent: 20.0
+    capsule_pick_retreat_distance_m: 0.05
+
+    # Capsule place (on bottle)
+    capsule_place_speed_percent: 15.0
+    capsule_place_retreat_speed_percent: 20.0
+    capsule_place_retreat_distance_m: 0.05
+
+    # ----------------------------------------------------------------------
+    # TIMING
+    # ----------------------------------------------------------------------
+    scene_update_wait_ms: 800
+    retry_sleep_ms: 150
+    world_spawn_safety_z_m: 0.001

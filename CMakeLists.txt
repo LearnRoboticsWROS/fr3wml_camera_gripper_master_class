@@ -14,6 +14,11 @@ find_package(trajectory_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(fairino_msgs REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(shape_msgs REQUIRED)
+find_package(moveit_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(fairino_bridge REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -30,8 +35,31 @@ endif()
 add_executable(fr3wml_ik_test src/fr3wml_ik_test.cpp)
 ament_target_dependencies(fr3wml_ik_test rclcpp moveit_ros_planning_interface std_msgs trajectory_msgs std_srvs fairino_msgs)
 
+add_executable(scene_loader_bottle_capsule src/scene_loader_bottle_capsule.cpp)
+ament_target_dependencies(scene_loader_bottle_capsule
+  rclcpp
+  moveit_ros_planning_interface
+  moveit_msgs
+  shape_msgs
+  geometry_msgs
+  geometric_shapes
+)
+
+add_executable(pick_place_bottle_capsule_framework src/pick_place_bottle_capsule_framework.cpp)
+ament_target_dependencies(pick_place_bottle_capsule_framework
+  rclcpp
+  moveit_ros_planning_interface
+  moveit_msgs
+  shape_msgs
+  geometry_msgs
+  geometric_shapes
+  fairino_bridge
+)
+
 install(TARGETS 
-  fr3wml_ik_test 
+  fr3wml_ik_test
+  scene_loader_bottle_capsule
+  pick_place_bottle_capsule_framework
   DESTINATION lib/${PROJECT_NAME}/
 )
 
