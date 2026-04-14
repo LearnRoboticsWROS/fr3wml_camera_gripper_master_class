@@ -35,9 +35,11 @@
 
 #include "fairino_bridge/srv/execute_pose_motion.hpp"
 #include <std_srvs/srv/trigger.hpp>
+#include <moveit_msgs/srv/apply_planning_scene.hpp>
 
 using MoveLClient = rclcpp::Client<fairino_bridge::srv::ExecutePoseMotion>;
 using TriggerClient = rclcpp::Client<std_srvs::srv::Trigger>;
+using ApplySceneClient = rclcpp::Client<moveit_msgs::srv::ApplyPlanningScene>;
 
 using moveit::planning_interface::MoveGroupInterface;
 
@@ -667,9 +669,43 @@ void allowEndEffectorCollisions(
       "ACM updated: end-effector links allowed to collide with everything.");
 }
 
-void removeObjectFromWorld(
+bool applySceneDiff(
+    const ApplySceneClient::SharedPtr& apply_scene_client,
+    const moveit_msgs::msg::CollisionObject& obj,
+    int wait_ms,
+    const rclcpp::Logger& logger,
+    const std::string& action_label)
+{
+  if (!apply_scene_client->wait_for_service(std::chrono::seconds(3))) {
+    RCLCPP_ERROR(logger, "[%s] /apply_planning_scene service not available", action_label.c_str());
+    return false;
+  }
+
+  auto request = std::make_shared<moveit_msgs::srv::ApplyPlanningScene::Request>();
+  request->scene.is_diff = true;
+  request->scene.robot_state.is_diff = true;
+  request->scene.world.collision_objects.push_back(obj);
+
+  auto future = apply_scene_client->async_send_request(request);
+  if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+    RCLCPP_ERROR(logger, "[%s] /apply_planning_scene call timed out", action_label.c_str());
+    return false;
+  }
+
+  auto result = future.get();
+  if (!result->success) {
+    RCLCPP_ERROR(logger, "[%s] /apply_planning_scene returned FAILURE", action_label.c_str());
+    return false;
+  }
+
+  waitMs(wait_ms);
+  RCLCPP_INFO(logger, "[%s] /apply_planning_scene OK", action_label.c_str());
+  return true;
+}
+
+bool removeObjectFromWorld(
     MoveGroupInterface& move_group,
-    moveit::planning_interface::PlanningSceneInterface& planning_scene,
+    const ApplySceneClient::SharedPtr& apply_scene_client,
     const ExecutorConfig& cfg,
     const rclcpp::Logger& logger,
     const std::string& object_id)
@@ -679,59 +715,55 @@ void removeObjectFromWorld(
   remove_obj.id = object_id;
   remove_obj.operation = moveit_msgs::msg::CollisionObject::REMOVE;
 
-  planning_scene.applyCollisionObjects({remove_obj});
-  waitMs(cfg.scene_update_wait_ms);
-
-  RCLCPP_INFO(logger, "Object '%s' removed from world collision scene.", object_id.c_str());
+  const std::string label = "REMOVE " + object_id;
+  return applySceneDiff(apply_scene_client, remove_obj, cfg.scene_update_wait_ms, logger, label);
 }
 
-void addBottleToWorld(
+bool addBottleToWorld(
     MoveGroupInterface& move_group,
-    moveit::planning_interface::PlanningSceneInterface& planning_scene,
+    const ApplySceneClient::SharedPtr& apply_scene_client,
     const ExecutorConfig& cfg,
     const rclcpp::Logger& logger,
     const geometry_msgs::msg::Pose& bottle_pose)
 {
-  const auto bottle_obj = makeBottleMeshObject(
+  auto bottle_obj = makeBottleMeshObject(
     move_group.getPlanningFrame(),
     BOTTLE_OBJECT_ID,
     cfg.bottle_mesh_resource,
     bottle_pose);
 
-  planning_scene.applyCollisionObjects({bottle_obj});
-  waitMs(cfg.scene_update_wait_ms);
-
   RCLCPP_INFO(
       logger,
-      "Bottle added to world at pose x=%.3f y=%.3f z=%.3f",
+      "Adding bottle to world at pose x=%.3f y=%.3f z=%.3f",
       bottle_pose.position.x,
       bottle_pose.position.y,
       bottle_pose.position.z);
+
+  return applySceneDiff(apply_scene_client, bottle_obj, cfg.scene_update_wait_ms, logger, "ADD bottle");
 }
 
-void addCapsuleToWorld(
+bool addCapsuleToWorld(
     MoveGroupInterface& move_group,
-    moveit::planning_interface::PlanningSceneInterface& planning_scene,
+    const ApplySceneClient::SharedPtr& apply_scene_client,
     const ExecutorConfig& cfg,
     const rclcpp::Logger& logger,
     const geometry_msgs::msg::Pose& capsule_pose)
 {
-  const auto capsule_obj = makeCapsulePrimitiveObject(
+  auto capsule_obj = makeCapsulePrimitiveObject(
     move_group.getPlanningFrame(),
     CAPSULE_OBJECT_ID,
     capsule_pose,
     cfg.capsule_height,
     cfg.capsule_radius);
 
-  planning_scene.applyCollisionObjects({capsule_obj});
-  waitMs(cfg.scene_update_wait_ms);
-
   RCLCPP_INFO(
       logger,
-      "Capsule added to world at pose x=%.3f y=%.3f z=%.3f",
+      "Adding capsule to world at pose x=%.3f y=%.3f z=%.3f",
       capsule_pose.position.x,
       capsule_pose.position.y,
       capsule_pose.position.z);
+
+  return applySceneDiff(apply_scene_client, capsule_obj, cfg.scene_update_wait_ms, logger, "ADD capsule");
 }
 
 // ============================================================================
@@ -945,11 +977,12 @@ bool callTriggerService(
 
 bool executeBottlePickPlace(
     MoveGroupInterface& move_group,
-    moveit::planning_interface::PlanningSceneInterface& planning_scene,
+    const ApplySceneClient::SharedPtr& apply_scene_client,
     const ExecutorConfig& cfg,
     MoveLClient::SharedPtr movel_client,
     const TriggerClient::SharedPtr& gripper_close_client,
     const TriggerClient::SharedPtr& gripper_idle_client,
+    geometry_msgs::msg::Pose& out_bottle_final_world_pose,
     const rclcpp::Logger& logger)
 {
   const auto pre_pick_bottle_rad  = degVectorToRad(cfg.pre_pick_bottle_joint_deg);
@@ -962,7 +995,7 @@ bool executeBottlePickPlace(
   }
 
   // Remove bottle from scene before LIN descend (MoveL bypasses MoveIt, no conflict)
-  removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
+  removeObjectFromWorld(move_group, apply_scene_client, cfg, logger, BOTTLE_OBJECT_ID);
 
   // Build bottle pick pose: position from params, orientation from actual robot pose at pre-pick
   geometry_msgs::msg::Pose bottle_pick_pose = move_group.getCurrentPose().pose;
@@ -1026,7 +1059,10 @@ bool executeBottlePickPlace(
     return false;
   }
 
-  // 9) Spawn bottle in final world pose (after retreat, to avoid collision)
+  // 9) Compute final world pose for bottle at place (upright).
+  // NOTE: we do NOT add bottle to the planning scene here — doing so would block
+  // subsequent PTPs (capsule pre-pick, return home). The bottle is added to the
+  // scene once at the very end of the framework, after return home.
   geometry_msgs::msg::Pose bottle_final_world_pose =
       computeObjectOriginPoseFromToolPickPose(
           bottle_place_pose,
@@ -1034,19 +1070,25 @@ bool executeBottlePickPlace(
           cfg.bottle_origin_wrt_softgripper_pick_frame_rpy_deg);
 
   bottle_final_world_pose.position.z += cfg.world_spawn_safety_z_m;
-  addBottleToWorld(move_group, planning_scene, cfg, logger, bottle_final_world_pose);
+  bottle_final_world_pose.orientation.x = 0.0;
+  bottle_final_world_pose.orientation.y = 0.0;
+  bottle_final_world_pose.orientation.z = 0.0;
+  bottle_final_world_pose.orientation.w = 1.0;
+
+  out_bottle_final_world_pose = bottle_final_world_pose;
 
   return true;
 }
 
 bool executeCapsulePickPlace(
     MoveGroupInterface& move_group,
-    moveit::planning_interface::PlanningSceneInterface& planning_scene,
+    const ApplySceneClient::SharedPtr& apply_scene_client,
     const ExecutorConfig& cfg,
     MoveLClient::SharedPtr movel_client,
     const TriggerClient::SharedPtr& suction_on_client,
     const TriggerClient::SharedPtr& suction_off_client,
     const std::shared_ptr<PerceptionState>& perception_state,
+    geometry_msgs::msg::Pose& out_capsule_final_world_pose,
     const rclcpp::Logger& logger)
 {
   const auto pre_pick_capsule_rad = degVectorToRad(cfg.pre_pick_capsule_joint_deg);
@@ -1080,7 +1122,7 @@ bool executeCapsulePickPlace(
   }
 
   // Remove capsule from scene before LIN descend (MoveL bypasses MoveIt, no conflict)
-  removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
+  removeObjectFromWorld(move_group, apply_scene_client, cfg, logger, CAPSULE_OBJECT_ID);
 
   // Use actual robot orientation at pre-pick (tool pointing down)
   capsule_pick_frame_pose.orientation = move_group.getCurrentPose().pose.orientation;
@@ -1148,7 +1190,10 @@ bool executeCapsulePickPlace(
           cfg.capsule_origin_wrt_suctioncup_pick_frame_rpy_deg);
 
   capsule_final_world_pose.position.z += cfg.world_spawn_safety_z_m;
-  addCapsuleToWorld(move_group, planning_scene, cfg, logger, capsule_final_world_pose);
+  // NOTE: capsule is NOT added to the planning scene here — it is added at the
+  // very end of the framework, after return home, to avoid collision blocking
+  // the return home planning.
+  out_capsule_final_world_pose = capsule_final_world_pose;
 
   return true;
 }
@@ -1218,7 +1263,17 @@ int main(int argc, char** argv)
   RCLCPP_INFO(logger, "Capsule place LIN : descend=%.0f%% retreat=%.0f%% dist=%.3fm",
       cfg.capsule_place_speed_percent, cfg.capsule_place_retreat_speed_percent, cfg.capsule_place_retreat_distance_m);
 
-  moveit::planning_interface::PlanningSceneInterface planning_scene;
+  // Service client for planning scene updates (owned by framework node)
+  auto apply_scene_client = node->create_client<moveit_msgs::srv::ApplyPlanningScene>(
+      "/apply_planning_scene");
+  RCLCPP_INFO(logger, "Waiting for /apply_planning_scene service...");
+  if (!apply_scene_client->wait_for_service(std::chrono::seconds(10))) {
+    RCLCPP_ERROR(logger, "/apply_planning_scene service not available. Is move_group running?");
+    rclcpp::shutdown();
+    spinner.join();
+    return 1;
+  }
+  RCLCPP_INFO(logger, "/apply_planning_scene service connected.");
 
   // Allow end-effector links to collide with everything
   allowEndEffectorCollisions(node, logger);
@@ -1250,33 +1305,39 @@ int main(int argc, char** argv)
       throw std::runtime_error("Failed to move home.");
     }
 
+    geometry_msgs::msg::Pose bottle_final_world_pose;
+    geometry_msgs::msg::Pose capsule_final_world_pose;
+
     // 1) Bottle pick and place
     RCLCPP_INFO(logger, "=== Global Step 1: Bottle pick and place ===");
-    if (!executeBottlePickPlace(move_group, planning_scene, cfg, movel_client,
-            gripper_close_client, gripper_idle_client, logger)) {
+    if (!executeBottlePickPlace(move_group, apply_scene_client, cfg, movel_client,
+            gripper_close_client, gripper_idle_client, bottle_final_world_pose, logger)) {
       throw std::runtime_error("Bottle pick and place failed.");
     }
 
     // 2) Capsule pick and place
     RCLCPP_INFO(logger, "=== Global Step 2: Capsule pick and place ===");
-    if (!executeCapsulePickPlace(move_group, planning_scene, cfg, movel_client,
-            suction_on_client, suction_off_client, perception_state, logger)) {
+    if (!executeCapsulePickPlace(move_group, apply_scene_client, cfg, movel_client,
+            suction_on_client, suction_off_client, perception_state,
+            capsule_final_world_pose, logger)) {
       throw std::runtime_error("Capsule pick and place failed.");
     }
 
-    // 3) Cleanup: remove collision objects before Return home
-    RCLCPP_INFO(logger, "=== Cleanup: removing objects before Return home ===");
-    removeObjectFromWorld(move_group, planning_scene, cfg, logger, BOTTLE_OBJECT_ID);
-    removeObjectFromWorld(move_group, planning_scene, cfg, logger, CAPSULE_OBJECT_ID);
-
-    // 4) Return home
+    // 3) Return home (scene is already free of bottle+capsule — they are only
+    //    added to the scene after return home reaches the home position)
     RCLCPP_INFO(logger, "=== Global Step 3: Return home ===");
     if (!moveToNamedTargetRobust(move_group, cfg, logger, cfg.home_named_target, "Return home")) {
       throw std::runtime_error("Failed to return home.");
     }
 
+    // 4) Spawn bottle and capsule at their final place poses (visual result)
+    RCLCPP_INFO(logger, "=== Post-Home: spawning bottle and capsule at place positions ===");
+    addBottleToWorld(move_group, apply_scene_client, cfg, logger, bottle_final_world_pose);
+    addCapsuleToWorld(move_group, apply_scene_client, cfg, logger, capsule_final_world_pose);
+
     RCLCPP_INFO(logger, "========================================");
     RCLCPP_INFO(logger, "Bottle + capsule framework COMPLETED.");
+    RCLCPP_INFO(logger, "Node staying alive to preserve scene state — press Ctrl+C to exit.");
     RCLCPP_INFO(logger, "========================================");
   }
   catch (const std::exception& e) {
@@ -1284,6 +1345,12 @@ int main(int argc, char** argv)
     rclcpp::shutdown();
     spinner.join();
     return 1;
+  }
+
+  // Keep node alive so the final scene state (bottle + capsule at place) is not
+  // reverted by downstream nodes when this process exits. User terminates with Ctrl+C.
+  while (rclcpp::ok()) {
+    rclcpp::sleep_for(std::chrono::milliseconds(200));
   }
 
   rclcpp::shutdown();

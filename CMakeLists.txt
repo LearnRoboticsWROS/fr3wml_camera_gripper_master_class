@@ -57,10 +57,33 @@ ament_target_dependencies(pick_place_bottle_capsule_framework
   std_srvs
 )
 
-install(TARGETS 
+add_executable(scene_handling src/scene_handling.cpp)
+ament_target_dependencies(scene_handling
+  rclcpp
+  moveit_ros_planning_interface
+  moveit_msgs
+  shape_msgs
+  geometry_msgs
+  geometric_shapes
+  std_srvs
+)
+
+add_executable(pick_place_framework src/pick_place_framework.cpp)
+ament_target_dependencies(pick_place_framework
+  rclcpp
+  moveit_ros_planning_interface
+  moveit_msgs
+  geometry_msgs
+  fairino_bridge
+  std_srvs
+)
+
+install(TARGETS
   fr3wml_ik_test
   scene_loader_bottle_capsule
   pick_place_bottle_capsule_framework
+  scene_handling
+  pick_place_framework
   DESTINATION lib/${PROJECT_NAME}/
 )
 

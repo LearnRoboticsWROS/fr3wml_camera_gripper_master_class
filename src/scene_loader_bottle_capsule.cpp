@@ -301,6 +301,11 @@ private:
       RCLCPP_INFO(get_logger(), "Scene loaded successfully.");
       RCLCPP_INFO(get_logger(), "  frame_id: %s", frame_id.c_str());
       RCLCPP_INFO(get_logger(), "  collision objects added: %zu", collision_objects.size());
+      RCLCPP_INFO(get_logger(), "Scene loader shutting down — scene is now managed by downstream nodes.");
+
+      // Exit the node cleanly so it cannot interfere with later scene updates
+      // performed by the pick/place framework.
+      rclcpp::shutdown();
     }
     catch (const std::exception& e) {
       RCLCPP_ERROR(get_logger(), "Failed to load scene: %s", e.what());

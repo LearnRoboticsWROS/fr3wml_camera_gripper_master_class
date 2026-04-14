@@ -32,10 +32,10 @@
     # OBJECT ORIGIN wrt TOOL PICK FRAME
     # xyz in meters, rpy in degrees
     # ----------------------------------------------------------------------
-    bottle_origin_wrt_softgripper_pick_frame_xyz: [0.0, 0.0, 0.248]
+    bottle_origin_wrt_softgripper_pick_frame_xyz: [0.0, 0.0, 0.438]
     bottle_origin_wrt_softgripper_pick_frame_rpy_deg: [0.0, 0.0, 0.0]
 
-    capsule_origin_wrt_suctioncup_pick_frame_xyz: [0.0, 0.0, 0.005]
+    capsule_origin_wrt_suctioncup_pick_frame_xyz: [0.0, 0.0, 0.215]
     capsule_origin_wrt_suctioncup_pick_frame_rpy_deg: [0.0, 0.0, 0.0]
 
     # ----------------------------------------------------------------------
@@ -78,8 +78,8 @@
     planning_time_sec: 4.0
     num_planning_attempts: 30
     max_free_space_retries: 15
-    ptp_velocity_scaling: 0.40
-    ptp_acceleration_scaling: 0.20
+    ptp_velocity_scaling: 0.80
+    ptp_acceleration_scaling: 0.80
     goal_position_tolerance: 0.003
     goal_orientation_tolerance: 0.03
     joint_target_tolerance: 0.02
@@ -95,23 +95,23 @@
     # ----------------------------------------------------------------------
 
     # Bottle pick
-    bottle_pick_speed_percent: 15.0
-    bottle_pick_retreat_speed_percent: 25.0
+    bottle_pick_speed_percent: 80.0
+    bottle_pick_retreat_speed_percent: 60.0
     bottle_pick_retreat_distance_m: 0.4
 
     # Bottle place
-    bottle_place_speed_percent: 15.0
-    bottle_place_retreat_speed_percent: 25.0
+    bottle_place_speed_percent: 50.0
+    bottle_place_retreat_speed_percent: 80.0
     bottle_place_retreat_distance_m: 0.1
 
     # Capsule pick
-    capsule_pick_speed_percent: 15.0
-    capsule_pick_retreat_speed_percent: 25.0
+    capsule_pick_speed_percent: 80.0
+    capsule_pick_retreat_speed_percent: 80.0
     capsule_pick_retreat_distance_m: 0.05
 
     # Capsule place (on bottle)
-    capsule_place_speed_percent: 15.0
-    capsule_place_retreat_speed_percent: 25.0
+    capsule_place_speed_percent: 40.0
+    capsule_place_retreat_speed_percent: 80.0
     capsule_place_retreat_distance_m: 0.05
 
     # ----------------------------------------------------------------------
